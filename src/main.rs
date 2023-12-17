@@ -1,8 +1,12 @@
-use eval::{eval };
-use std::collections::HashSet;
+use std::io;
+use std::collections::{HashMap,HashSet};
+use evalexpr::*;
+
+
+mod formulae_8;
 
 pub static CHARLIST: [char; 14 ] = [ '0','1','2','3','4','5','6','7','8','9','+','-','*','/'];
-pub const FLENGTH: usize=5;
+pub const FLENGTH: usize=8;
 
 struct CharWalker {
     curr: u64,
@@ -12,18 +16,25 @@ struct CharWalker {
 
 impl CharWalker {
 
-    fn leading_or_lone_zeros(next_str:&String)->bool{
+    fn leading_zeros_double_signs(next_str:&str)->bool{
         let mut at_lead=true;
+        let mut saw_sign=true;
         for c in next_str.chars(){
             if at_lead && c=='0' {
                 return true;
             }else if c=='+' || c=='-' || c=='*' || c=='/'{
+                if saw_sign {
+                    return true;
+                }
+                saw_sign=true;
                 at_lead=true;
             }
             else{
                 at_lead=false;
+                saw_sign=false;
             }
         }
+
         false
     }
 }
@@ -33,25 +44,19 @@ impl Iterator for CharWalker {
     type Item = String;
    
     fn next(&mut self) -> Option<Self::Item>{
-        loop{
-            if self.curr==self.max {
-                return None
-            }else{
-                let mut it=self.curr;
-                let mut next_str=String::with_capacity(self.digits+5);
-                for _ in 0..self.digits{
-                    next_str.push(CHARLIST[(it%14) as usize]);
-                    it=it/14;
-                }
-                self.curr+=1;
-                if CharWalker::leading_or_lone_zeros(&next_str){
-                    continue;
-                }else{
-                   return Some(next_str)
-                }
+        if self.curr==self.max {
+            None
+        }else{
+            let mut it=self.curr;
+            let mut next_str=String::with_capacity(self.digits+5);
+            for _ in 0..self.digits{
+                next_str.push(CHARLIST[(it%14) as usize]);
+                it/=14;
+            }
+            self.curr+=1;
+            Some(next_str)
             }
         }
-    }
 }
 
 fn char_walker( d: usize) -> CharWalker {
@@ -63,7 +68,7 @@ fn equations_size(length: usize)->HashSet<String>{
 
     let mut d = HashSet::<String>::new();
 
-    for i in 0..10{
+    for i in 1..10{
         let e=scan_size(length-2,&format!("={}",i));
         d.extend(e)
     }
@@ -89,17 +94,16 @@ fn scan_size(length: usize, equals: &str)->Vec<String> {
     let mut json_string = String::from('=');
     json_string.push_str(equals);
 
-    let functions = char_walker(length)
-        .map(|cw| {let mut s=String::from(cw.clone()); s.push_str(&json_string); (cw,s)})
-        .map(|(cw,s)| {let e=eval(&s); (cw,s,e)})
+    char_walker(length)
+        .filter(|cw| !CharWalker::leading_zeros_double_signs(cw))
+        .map(|cw| {let mut s=cw.clone(); s.push_str(&json_string); (cw,s)})
+        .map(|(cw,s)| {let e=evalexpr::eval(&s); (cw,s,e)})
         .filter(|(_cw, _s, e)| e.is_ok())
         .map(|(cw,s,e)| (cw,s, e.unwrap()))
-        .filter(|(_cw,_s,e)| e.eq(&true))
+        .filter(|(_cw,_s,e)| e.eq(&Value::from(true)))
         .map(|(cw,_s,_e)| cw)
-        .map(|cw| {let mut s=String::from(cw); s.push_str(equals); s})
-        .collect::<Vec<_>>();
-
-    functions
+        .map(|cw| {let mut s=cw.clone(); s.push_str(equals); s})
+        .collect::<Vec<_>>()
 }
 
 // Compare two words, and return how good the guess is relative to the goal.
@@ -143,27 +147,257 @@ fn compare_words(goal: &str, guess: &str) -> String {
 }
 
 
-fn main() {
+   fn score(all_words: &HashSet<String>, word_set: &HashSet<String>) -> String {
+        let word_set_count: f64 = word_set.len() as f64;
+        println!("Word set count: {}", word_set_count);
 
+        let mut max_score: f64 = 0.0;
+        let mut max_fscore: f64 = 0.0;
+        let mut max_word = String::from("");
+        let min_of_max: usize = 10000;
+        let great: f64 = 6.72;
 
-    let d = equations_size(6);
-    for s in d{
-        println!("f..>{}<",s);
+        for possible_guess in all_words {
+            // Calculate the clue sets and their size.
+            let counted = &word_set
+                .iter()
+                .fold(HashMap::new(), |mut acc, possible_goal| {
+                    *acc.entry(compare_words(possible_goal, possible_guess))
+                        .or_insert(0) += 1;
+                    acc
+                });
+
+            // Given the clue set, Calculate the Shannon entropy.
+            let fscore: f64 = counted
+                .iter()
+                .map(|(_key, value)| {
+                    let v_c: f64 = f64::from(*value);
+                    let f = word_set_count / v_c;
+                    v_c * f.ln()
+                })
+                .sum::<f64>()
+                / word_set_count;
+
+            // Given a clue set, calculate it's size
+            let score: f64 = counted.len() as f64;
+
+            // Given a cluse set, calculate the maximum clue size.
+            let _max_clue_size = counted
+                .iter()
+                .map(|(_key, value)| value)
+                .max()
+                .ok_or(Some(0))
+                .unwrap();
+
+            if fscore == max_fscore && score > max_score {
+                max_word = possible_guess.to_string();
+                max_score = score;
+                max_fscore = fscore;
+                println!("Improving to {} {} {}", max_word, max_fscore, max_score);
+            } else if fscore>max_fscore || 
+                (fscore == max_fscore
+                && score == max_score
+                && word_set.contains(possible_guess))
+            {
+                // prefer possible solutions
+                max_score = score;
+                max_fscore = fscore;
+                max_word = possible_guess.to_string();
+                println!("Improving to {} {} {}", max_word, max_fscore, max_score);
+            }
+
+            if fscore >= great {
+                println!("{} {} is also great", possible_guess, fscore);
+            }
+
+        }
+
+        println!(
+            "Guess... {}, {} {} {}",
+            max_word, max_score, max_fscore, min_of_max
+        );
+        max_word
     }
 
+    fn play_nerdle(all_word_set: &HashSet<String>) {
 
-    //let my_args: Vec<String> = env::args().collect();
+        let mut word_set = all_word_set.clone();
 
-    //dbg!(my_args);
+        println!("Guess 48-32=16");
 
-    //let query = &my_args[1];
-    //let e=eval(query);
+        let mut recommend = String::from("48-32=16");
 
-    //match e {
-    //    Ok(v) => println!("Value : {v:?}"),
-    //    Err(e) => println!("Error: {e:?}"),
+        while !word_set.is_empty() {
 
-    //}
+            let mut clue = String::new();
+
+            println!("Enter clue...");
+            io::stdin()
+                .read_line(&mut clue)
+                .expect("Failed to read line");
+
+            remove(&mut word_set, &recommend, &clue);
+
+            let count = word_set.len();
+            println!("{} possible words", count);
+
+            if count < 300 {
+                for word in &word_set {
+                    print!("{} ", word);
+                }
+                println!(" ");
+            }
+            
+            recommend = score(all_word_set, &word_set);
+            println!("Guess: {}", recommend);
+        }
+    }
+
+    fn remove(word_set: &mut HashSet<String>, guess: &str, clue: &str) {
+        let guess_chars: Vec<char> = guess.chars().collect();
+        let clue_chars: Vec<char> = clue.chars().collect();
+        let mut remove_set = HashSet::new();
+
+        for word in word_set.iter() {
+            let mut word_chars: Vec<char> = word.chars().collect();
+            let mut remove = false;
+
+            for i in 0..FLENGTH {
+                if clue_chars[i] == 'G' {
+                    if guess_chars[i] == word_chars[i] {
+                        word_chars[i] = ' '; // Don't match this letter again
+                    } else {
+                        // Remove words where the clue is green, but the letters don't match
+                        remove = true;
+                    }
+                }
+
+                if remove {
+                    break;
+                }
+            }
+            if !remove {
+                for i in 0..FLENGTH {
+                    if clue_chars[i] == 'Y' {
+                        if guess_chars[i] == word_chars[i] {
+                            // This should have been a 'G'
+                            remove = true;
+                            break;
+                        }
+
+                        // If the clue is Y then search for that letter.
+                        // For Y, valid matches only happen when the match is not in the same position.
+                        let found = word_chars.iter().enumerate().find_map(|(j, c)| {
+                            if *c == guess_chars[i] {
+                                Some(j)
+                            } else {
+                                None
+                            }
+                        });
+
+                        if let Some(j) = found {
+                            if j != i {
+                                word_chars[j] = ' '; // Don't match this letter again.
+                            } else {
+                                remove = true; // This clue should have been 'G'
+                            }
+                        } else {
+                            remove = true; // Didn't find the matching letter.
+                        }
+                    }
+
+                    if remove {
+                        break;
+                    }
+                }
+            }
+
+            if !remove {
+                for i in 0..FLENGTH {
+                    if clue_chars[i] == ' ' {
+                        // If the clue is ' ' then that guess letter must not exist in the target.
+                        let found = word_chars.iter().enumerate().find_map(|(j, c)| {
+                            if *c == guess_chars[i] {
+                                Some(j)
+                            } else {
+                                None
+                            }
+                        });
+
+                        if let Some(_j) = found {
+                            remove = true;
+                        }
+
+                        if remove {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if remove {
+                remove_set.insert(word.clone());
+            }
+        }
+
+        for removeable in &remove_set {
+            word_set.remove(removeable);
+        }
+    }
+
+fn count_chars() {
+    let counted = formulae_8::FORMULAE 
+        .iter()
+        .flat_map(|w| w.chars())
+        .fold(HashMap::with_capacity(128), |mut acc, c| {
+            *acc.entry(c).or_insert(0) += 1;
+            acc
+        });
+
+    let mut count_vec = counted.iter().collect::<Vec<(&char, &i32)>>();
+    count_vec.sort_by(|a, b| b.1.cmp(a.1));
+    count_vec.iter().for_each(|(c, x)| println!("{}:{}", c, x));
+}
 
 
+
+fn main() {
+
+    let args: Vec<String> = std::env::args().collect();
+
+
+    if args[1] == *"calc"{
+        let e = evalexpr::eval(&args[2]);
+
+        println!("{} => {:?}", args[2], e);
+
+    }
+ 
+    if args[1] == *"count" {
+        count_chars();
+    }
+
+    if args[1] == *"play" {
+        //let d = equations_size(FLENGTH);
+        
+        let d:  HashSet::<String> = formulae_8::FORMULAE.iter().map(|&s| String::from(s)).collect();
+
+
+        play_nerdle(&d);
+    }
+
+    if args[1] == *"rust" {
+        let formulae = equations_size(FLENGTH);
+        println!("//Set contains {} formaulae", formulae.len());
+        println!("pub static FORMULAE: [&str;{}]=[", formulae.len());
+
+        let s = formulae.iter()
+                    .enumerate()
+                    .map(|(c,s)| format!("\"{}\"{}",s, if c%8==7 {",\n    "} else {","}))
+                    .collect::<Vec<String>>()
+                    .join("");
+
+        println!("{}",s);
+        println!("];");
+    }
 }
