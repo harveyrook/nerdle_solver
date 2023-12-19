@@ -1,7 +1,5 @@
 use std::io;
 use std::collections::{HashMap,HashSet};
-use evalexpr::*;
-
 
 mod formulae_8;
 
@@ -16,22 +14,17 @@ struct CharWalker {
 
 impl CharWalker {
 
-    fn leading_zeros_double_signs(next_str:&str)->bool{
-        let mut at_lead=true;
-        let mut saw_sign=true;
-        for c in next_str.chars(){
-            if at_lead && c=='0' {
+    // return true if the vector will collect to a string with leading 0's or double signs.
+    fn leading_zeros_double_signs(raw: &Vec<char>)->bool{
+        let mut leading=true;
+        for &c in raw{
+            if leading && (c=='0' || c=='+' || c=='-' || c=='*' || c=='/') {
                 return true;
             }else if c=='+' || c=='-' || c=='*' || c=='/'{
-                if saw_sign {
-                    return true;
-                }
-                saw_sign=true;
-                at_lead=true;
+                leading=true;
             }
             else{
-                at_lead=false;
-                saw_sign=false;
+                leading=false;
             }
         }
 
@@ -41,14 +34,14 @@ impl CharWalker {
 
 impl Iterator for CharWalker {
 
-    type Item = String;
+    type Item = Vec<char>;
    
     fn next(&mut self) -> Option<Self::Item>{
         if self.curr==self.max {
             None
         }else{
             let mut it=self.curr;
-            let mut next_str=String::with_capacity(self.digits+5);
+            let mut next_str=Vec::with_capacity(self.digits+5);
             for _ in 0..self.digits{
                 next_str.push(CHARLIST[(it%14) as usize]);
                 it/=14;
@@ -68,42 +61,36 @@ fn equations_size(length: usize)->HashSet<String>{
 
     let mut d = HashSet::<String>::new();
 
-    for i in 1..10{
-        let e=scan_size(length-2,&format!("={}",i));
-        d.extend(e)
-    }
+    let e=scan_size(length, 0.0_f64, 10.0_f64 );
+    d.extend(e);
 
-    for i in 10..100{
-        let e=scan_size(length-3,&format!("={}",i));
-        d.extend(e)
-    }
-
-    for i in 100..1000{
-        let e=scan_size(length-4,&format!("={}",i));
-        d.extend(e)
-    }
+    let e=scan_size(length, 10.0_f64, 100.0_f64 );
+    d.extend(e);
+    
+    let e=scan_size(length, 100.0_f64, 1000.0_f64 );
+    d.extend(e);
 
     d
 
 }
 
-fn scan_size(length: usize, equals: &str)->Vec<String> {
+fn scan_size(length: usize, start_range: f64, end_range: f64)->Vec<String> {
 
-    println!("Creating {} {}", length, equals);
+    println!("Creating {}", length);
 
-    let mut json_string = String::from('=');
-    json_string.push_str(equals);
+    let nerdel_string = format!("={}",start_range);
+    let rhs_len=length-nerdel_string.len();
 
-    char_walker(length)
+    char_walker(rhs_len)
         .filter(|cw| !CharWalker::leading_zeros_double_signs(cw))
-        .map(|cw| {let mut s=cw.clone(); s.push_str(&json_string); (cw,s)})
-        .map(|(cw,s)| {let e=evalexpr::eval(&s); (cw,s,e)})
-        .filter(|(_cw, _s, e)| e.is_ok())
-        .map(|(cw,s,e)| (cw,s, e.unwrap()))
-        .filter(|(_cw,_s,e)| e.eq(&Value::from(true)))
-        .map(|(cw,_s,_e)| cw)
-        .map(|cw| {let mut s=cw.clone(); s.push_str(equals); s})
-        .collect::<Vec<_>>()
+        .map(|cw| cw.into_iter().collect::<String>())
+        .map(|s| {let e=equation::evaluate(&s); (s, e)})
+        .filter( |(_s,e)| e.is_ok())
+        .map( |(s,e)| (s, e.unwrap()))
+        .filter( |(_s,f)| f>=&start_range && f<&end_range && f==&f64::floor(*f))
+        //.inspect( |(s,f)| println!("> {} {}",s,f))
+        .map( |(s,f)| {let mut s2: String=s.clone(); s2.push_str(&format!("={}",f)); s2})
+        .collect::<Vec<String>>()
 }
 
 // Compare two words, and return how good the guess is relative to the goal.
@@ -221,8 +208,10 @@ fn compare_words(goal: &str, guess: &str) -> String {
 
     fn play_nerdle(all_word_set: &HashSet<String>) {
 
-        let mut word_set = all_word_set.clone();
+        //let mut word_set = all_word_set.clone();
 
+        //let mut recommend = score(all_word_set, &word_set);
+        //println!("Guess: {}", recommend);
         println!("Guess 48-32=16");
 
         let mut recommend = String::from("48-32=16");
@@ -367,7 +356,7 @@ fn main() {
 
 
     if args[1] == *"calc"{
-        let e = evalexpr::eval(&args[2]);
+        let e = equation::evaluate(&args[2]).unwrap();
 
         println!("{} => {:?}", args[2], e);
 
