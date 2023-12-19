@@ -3,9 +3,16 @@ use std::collections::{HashMap,HashSet};
 
 mod formulae_8;
 
+// List of all characters allowed in a nerdle formula
 pub static CHARLIST: [char; 14 ] = [ '0','1','2','3','4','5','6','7','8','9','+','-','*','/'];
+
+// Length of the nerdle challenge
 pub const FLENGTH: usize=8;
 
+
+// A key part of the nerdle solver generates the list of all possible nerdle problems by first 
+// generating a list of all strings that contain valid nerdle characters.
+// CharWalker is the iterator that iterates over these strings. 
 struct CharWalker {
     curr: u64,
     digits: usize,
@@ -14,7 +21,8 @@ struct CharWalker {
 
 impl CharWalker {
 
-    // return true if the vector will collect to a string with leading 0's or double signs.
+    // return true if the resultnig string will have leading 0's or double signs. These are both
+    // invalid in nerdle. e.g. 04*-7 is valid arithmetic but not not a valid nerdle guess,
     fn leading_zeros_double_signs(raw: &Vec<char>)->bool{
         let mut leading=true;
         for &c in raw{
@@ -32,6 +40,7 @@ impl CharWalker {
     }
 }
 
+// Iterate over possible nerdle strings
 impl Iterator for CharWalker {
 
     type Item = Vec<char>;
@@ -61,12 +70,15 @@ fn equations_size(length: usize)->HashSet<String>{
 
     let mut d = HashSet::<String>::new();
 
+    // Generate all clues that have a single digit after the ='s sign
     let e=scan_size(length, 0.0_f64, 10.0_f64 );
     d.extend(e);
 
+    // Generate all clues that have double digit after the ='s sign
     let e=scan_size(length, 10.0_f64, 100.0_f64 );
     d.extend(e);
     
+    // triple digits
     let e=scan_size(length, 100.0_f64, 1000.0_f64 );
     d.extend(e);
 
@@ -78,8 +90,8 @@ fn scan_size(length: usize, start_range: f64, end_range: f64)->Vec<String> {
 
     println!("Creating {}", length);
 
-    let nerdel_string = format!("={}",start_range);
-    let rhs_len=length-nerdel_string.len();
+    let nerdle_string = format!("={}",start_range);
+    let rhs_len=length-nerdle_string.len();
 
     char_walker(rhs_len)
         .filter(|cw| !CharWalker::leading_zeros_double_signs(cw))
@@ -208,7 +220,7 @@ fn compare_words(goal: &str, guess: &str) -> String {
 
     fn play_nerdle(all_word_set: &HashSet<String>) {
 
-        //let mut word_set = all_word_set.clone();
+        let mut word_set = all_word_set.clone();
 
         //let mut recommend = score(all_word_set, &word_set);
         //println!("Guess: {}", recommend);
