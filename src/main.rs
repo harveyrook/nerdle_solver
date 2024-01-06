@@ -28,11 +28,8 @@ impl CharWalker {
         for &c in raw{
             if leading && (c=='0' || c=='+' || c=='-' || c=='*' || c=='/') {
                 return true;
-            }else if c=='+' || c=='-' || c=='*' || c=='/'{
-                leading=true;
-            }
-            else{
-                leading=false;
+            }else{
+                leading = c=='+' || c=='-' || c=='*' || c=='/'
             }
         }
 
